@@ -9,3 +9,7 @@ Useful functions and tips for BigQuery
   to_bin(1000, [0, 100, 500]) => NULL
   to_bin(1000, [0, 100, 500, NULL]) => '500 - ...'
 ```
+
+
+### Extentions
+* Grouping Sets (TBD)
