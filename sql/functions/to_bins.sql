@@ -1,69 +1,45 @@
 /*
 
 The function takes int value and an arranged int array 
-and put the value into the bin generated from the array elements
+and put a value into the bin generated from the array elements
+
+Existance of upper boundary must be marked by 0 or NULL as last value in array
 
 e.g. 
-a) within array bounds:
-to_bins(10, [0, 100, 500], zero_to_dots=FALSE) => '0 - 100'
-to_bins(10, [0, 100, 500], zero_to_dots=TRUE) => '... - 100'
+a) within array boundaries:
+to_bins(10, [0, 100, 500]) => '0 - 100'
+to_bins(100, [0, 100, 500]) => '100 - 500'
 
-out of array bounds:
-to_bins(1000, [0, 100, 500], zero_to_dots=FALSE) => NULL
-to_bins(1000, [0, 100, 500, 0], zero_to_dots=FALSE) => '500 - ...'
-to_bins(1000, [0, 100, 500, 0], zero_to_dots=TRUE) => '500 - ...'
+out of array boundaries:
+to_bins(1000, [0, 100, 500]) => NULL
+to_bins(1000, [0, 100, 500, 0]) => '500 - ...'
+to_bins(1000, [0, 100, 500, NULL]) => '500 - ...'
 
 */
 
-CREATE OR REPLACE FUNCTION analytics.to_bins(x INT64, arr ARRAY <INT64>, zero_to_dots BOOL)
+CREATE OR REPLACE FUNCTION analytics.to_bins(x INT64, arr ARRAY <INT64>)
 RETURNS STRING
 AS ((
 
   WITH 
 
-  -- create array with (N - 1) bins from the array of length N.
-  -- 
-  arr_bins AS (
-  
-  SELECT ARRAY_AGG(arr_bins ORDER BY index) as arr_bins
-  FROM (
-    SELECT 
-      CONCAT(
-        REGEXP_REPLACE(
-          CAST(arr[SAFE_OFFSET(index)] AS STRING), 
-          CASE 
-            WHEN zero_to_dots 
-              THEN '^0$' 
-            ELSE '_' 
-          END, 
-          '...'
-        ),
-        ' - ',
-        REGEXP_REPLACE(
-          CAST(arr[SAFE_OFFSET(index + 1)] AS STRING), 
-          CASE 
-            WHEN zero_to_dots OR (ARRAY_REVERSE(arr)[OFFSET(0)] = 0) 
-              THEN '^0$' 
-            ELSE '_' 
-          END, 
-          '...'
-        )
-      ) as arr_bins,
-      index
-    FROM UNNEST(GENERATE_ARRAY(0, ARRAY_LENGTH(arr) - 2)) AS index
-    )
-
+  -- chech if there is the upper boundary
+  -- it should be defined by 0 or NULL
+  upper_boundary AS (
+    SELECT
+      ARRAY_REVERSE(arr)[OFFSET(0)] = 0
+        OR ARRAY_REVERSE(arr)[OFFSET(0)] IS NULL
+        AS without_upper_boundary
   )
 
-
   -- as the array must be arranged asc to use with RANGE_BUCKET()
-  -- we should exclude last 0 which can be used for "no upper bound"
+  -- we should exclude last value in case there is no upper boundary
   , arr_wo_last_0 AS (
 
   SELECT 
     CASE 
-      -- check if the last value of the array is 0
-      WHEN ARRAY_REVERSE(arr)[OFFSET(0)] = 0 
+      -- if there is the upper boundary
+      WHEN (SELECT without_upper_boundary FROM upper_boundary)
         THEN ARRAY_AGG(arr_ ORDER BY index) 
       ELSE arr
     END as arr
@@ -73,6 +49,31 @@ AS ((
     FROM UNNEST(GENERATE_ARRAY(0, ARRAY_LENGTH(arr) - 2)) AS index
   )
   
+  )
+
+
+  -- create array with (N - 1) bins from the array of length N.
+  , arr_bins AS (
+  
+  SELECT ARRAY_AGG(arr_bins ORDER BY index) as arr_bins
+  FROM (
+    SELECT 
+      CONCAT(
+        CAST(arr[SAFE_OFFSET(index)] AS STRING),
+        ' - ',
+        CASE 
+          WHEN 
+            (SELECT without_upper_boundary FROM upper_boundary)
+            AND
+            (index = (ARRAY_LENGTH(arr) - 2))
+          THEN '...' 
+          ELSE CAST(arr[SAFE_OFFSET(index + 1)] AS STRING) 
+        END
+        ) AS arr_bins,
+      index
+    FROM UNNEST(GENERATE_ARRAY(0, ARRAY_LENGTH(arr) - 2)) AS index
+    )
+
   )
 
 
