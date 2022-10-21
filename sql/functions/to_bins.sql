@@ -33,7 +33,7 @@ AS ((
   )
 
   -- as the array must be arranged asc to use with RANGE_BUCKET()
-  -- we should exclude last value in case there is no upper boundary
+  -- we should exclude the last value in case there is no upper boundary
   , arr_wo_last_0 AS (
 
   SELECT 
@@ -45,14 +45,13 @@ AS ((
     END as arr
   FROM (
     SELECT arr[SAFE_OFFSET(index)] AS arr_, index
-    -- exclude the last element of the array from "lower bound column" as it's used only in "upper bound column"
     FROM UNNEST(GENERATE_ARRAY(0, ARRAY_LENGTH(arr) - 2)) AS index
   )
   
   )
 
 
-  -- create array with (N - 1) bins from the array of length N.
+  -- create the array with (N - 1) bins from the array of length N.
   , arr_bins AS (
   
   SELECT ARRAY_AGG(arr_bins ORDER BY index) as arr_bins
@@ -62,6 +61,7 @@ AS ((
         CAST(arr[SAFE_OFFSET(index)] AS STRING),
         ' - ',
         CASE 
+          -- if there is no upper boundary, make it as 'X - ...'
           WHEN 
             (SELECT without_upper_boundary FROM upper_boundary)
             AND
@@ -71,13 +71,14 @@ AS ((
         END
         ) AS arr_bins,
       index
+    -- exclude the last element of the array from "lower bound column" as it's used only in the "upper bound column"
     FROM UNNEST(GENERATE_ARRAY(0, ARRAY_LENGTH(arr) - 2)) AS index
     )
 
   )
 
 
-  -- find value in the array and return corresponding bin name
+  -- find value in the array and return the corresponding bin name
   SELECT 
     arr_bins.arr_bins[SAFE_OFFSET(
       RANGE_BUCKET(x, arr_wo_last_0.arr) - 1
